@@ -1,42 +1,37 @@
-import crypto from "crypto";
+// netlify/functions/total.js
 
-const BASE_URL = process.env.SOLARMAN_BASE_URL;
+const BASE_URL = process.env.SOLARMAN_BASE_URL || "https://api.solarmanpv.com";
+
 const API_ID = process.env.SOLARMAN_API_ID;
 const API_SECRET = process.env.SOLARMAN_API_SECRET;
-
-function sign(params, secret) {
-  const sortedKeys = Object.keys(params).sort();
-  const str = sortedKeys.map(k => k + params[k]).join("") + secret;
-  return crypto.createHash("md5").update(str).digest("hex");
-}
+const EMAIL = process.env.SOLARMAN_USERNAME;
+const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
 async function getAccessToken() {
-  const path = "/account/v1.0/token";
-  const timestamp = Date.now();
-
-  const params = {
-    appId: API_ID,
-    timestamp: timestamp
-  };
-
-  const signature = sign(params, API_SECRET);
-
-  const res = await fetch(BASE_URL + path, {
+  const res = await fetch(BASE_URL + "/account/v1.0/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
       appId: API_ID,
-      timestamp,
-      sign: signature
+      appSecret: API_SECRET,
+      email: EMAIL,
+      password: PASSWORD
     })
   });
 
-  if (!res.ok) throw new Error("Token request failed");
+  if (!res.ok) {
+    throw new Error("Token request failed: " + res.status);
+  }
 
   const data = await res.json();
-  return data?.access_token;
+
+  if (!data.access_token) {
+    throw new Error("No access_token returned");
+  }
+
+  return data.access_token;
 }
 
 async function getPlantList(token) {
@@ -52,7 +47,9 @@ async function getPlantList(token) {
     })
   });
 
-  if (!res.ok) throw new Error("Station list failed");
+  if (!res.ok) {
+    throw new Error("Station list failed: " + res.status);
+  }
 
   const data = await res.json();
   return data?.data?.list || [];
@@ -60,7 +57,8 @@ async function getPlantList(token) {
 
 export const handler = async () => {
   try {
-    if (!API_ID || !API_SECRET) {
+
+    if (!API_ID || !API_SECRET || !EMAIL || !PASSWORD) {
       return {
         statusCode: 500,
         body: JSON.stringify({ error: "Missing API credentials" })
@@ -97,6 +95,7 @@ export const handler = async () => {
         updated_at: station.lastUpdateTime || null
       })
     };
+
   } catch (error) {
     return {
       statusCode: 500,
