@@ -1,5 +1,5 @@
 // netlify/functions/total.js
-const crypto = require("crypto");
+import crypto from "crypto";
 
 const BASE_URL = "https://globalapi.solarmanpv.com";
 
@@ -25,10 +25,12 @@ async function getAccessToken() {
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify({
       email: EMAIL,
-      password: PASSWORD,
+      password: sha256(PASSWORD),
       appSecret: API_SECRET
     })
   });
@@ -38,7 +40,9 @@ async function getAccessToken() {
   const token = extractToken(data);
 
   if (!res.ok || !token) {
-    throw new Error("Token failed: " + JSON.stringify(data));
+    throw new Error(
+      "Token failed: " + JSON.stringify(data)
+    );
   }
 
   return token;
@@ -64,7 +68,7 @@ async function getStationList(token) {
   return data?.stationList || data?.data?.list || [];
 }
 
-exports.handler = async function () {
+export const handler = async () => {
   try {
 
     if (!API_ID || !API_SECRET || !EMAIL || !PASSWORD) {
@@ -86,10 +90,23 @@ exports.handler = async function () {
 
     const station = stations[0];
 
+    const total_kwh =
+      station.totalEnergy ||
+      station.totalYield ||
+      station.generationTotal ||
+      0;
+
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(station, null, 2)
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=300"
+      },
+      body: JSON.stringify({
+        station_name: station.name || station.stationName,
+        total_kwh: Number(total_kwh),
+        updated_at: station.lastUpdateTime || null
+      })
     };
 
   } catch (err) {
