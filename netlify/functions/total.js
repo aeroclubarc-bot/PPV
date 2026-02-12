@@ -28,7 +28,7 @@ async function getAccessToken() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email: EMAIL,
-      password: sha256(PASSWORD),
+      password: PASSWORD,
       appSecret: API_SECRET
     })
   });
