@@ -8,8 +8,6 @@ const API_SECRET = process.env.SOLARMAN_API_SECRET;
 const EMAIL = process.env.SOLARMAN_USERNAME;
 const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
-
-// ---------- SHA256 lowercase
 function sha256Lower(str) {
   return crypto.createHash("sha256").update(str).digest("hex").toLowerCase();
 }
@@ -18,8 +16,7 @@ function extractToken(data) {
   return data?.access_token || data?.data?.access_token || null;
 }
 
-
-// ---------- TOKEN
+// TOKEN
 async function getAccessToken() {
 
   const res = await fetch(
@@ -38,75 +35,51 @@ async function getAccessToken() {
   const data = await res.json();
   const token = extractToken(data);
 
-  if (!token) {
-    throw new Error("Token failed: " + JSON.stringify(data));
-  }
+  if (!token) throw new Error("Token failed");
 
   return token;
 }
 
+// STATION
+async function getStation(token) {
 
-// ---------- REALTIME DEVICE DATA
-async function getRealtime(token, deviceSn) {
-
-  const res = await fetch(
-    `${BASE_URL}/device/v1.0/currentData`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        deviceSn: deviceSn
-      })
-    }
-  );
+  const res = await fetch(`${BASE_URL}/station/v1.0/list`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      pageNum: 1,
+      pageSize: 10
+    })
+  });
 
   const data = await res.json();
 
-  if (!res.ok) {
-    throw new Error("Realtime failed: " + JSON.stringify(data));
-  }
-
-  return data;
+  return data?.data?.list?.[0];
 }
 
 
-// ---------- HANDLER
+// HANDLER
 exports.handler = async function () {
   try {
 
     const token = await getAccessToken();
-
-    // SN de ton onduleur (confirmé dans ton JSON)
-    const deviceSn = "SE1ES430N5R271";
-
-    const realtime = await getRealtime(token, deviceSn);
-
-    // SOLARMAN change la structure selon les comptes...
-    const list =
-      realtime?.data?.dataList ||
-      realtime?.data?.data?.dataList ||
-      realtime?.dataList ||
-      [];
-
-    // helper lecture clé
-    const find = key =>
-      Number(list.find(i => i.key === key)?.value || 0);
+    const station = await getStation(token);
 
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "public, max-age=300"
+        "Cache-Control": "public, max-age=60"
       },
       body: JSON.stringify({
-        station_name: "PPV Aéroclub ARC - LFPX",
-        total_kwh: find("Et_ge0"),      // production totale
-        today_kwh: find("Etdy_ge1"),    // production jour
-        current_power_w: find("P_INV1"),// puissance instantanée
-        battery_soc: find("B_left_cap1")
+        station_name: station.name,
+        current_power_w: station.generationPower,
+        installed_kwp: station.installedCapacity,
+        battery_soc: station.batterySoc,
+        updated_at: station.lastUpdateTime
       }, null, 2)
     };
 
