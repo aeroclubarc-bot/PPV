@@ -79,12 +79,16 @@ async function getStationList(token) {
 async function getStationEnergy(token, stationId) {
 
   const res = await fetch(
-    `${BASE_URL}/station/v1.0/overview?stationId=${stationId}`,
+    `${BASE_URL}/station/v1.0/stationEnergy`,
     {
-      method: "GET",
+      method: "POST",
       headers: {
+        "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
-      }
+      },
+      body: JSON.stringify({
+        stationId: stationId
+      })
     }
   );
 
@@ -95,7 +99,6 @@ async function getStationEnergy(token, stationId) {
   }
 
   return data?.data || data;
-}
 
 // ---- HANDLER NETLIFY
 exports.handler = async function () {
