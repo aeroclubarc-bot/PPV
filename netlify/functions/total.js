@@ -8,14 +8,16 @@ const API_SECRET = process.env.SOLARMAN_API_SECRET;
 const EMAIL = process.env.SOLARMAN_USERNAME;
 const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
+// ---- SHA256 lowercase (exigé par SOLARMAN)
 function sha256Lower(str) {
   return crypto
     .createHash("sha256")
     .update(str, "utf8")
     .digest("hex")
-    .toLowerCase(); // IMPORTANT
+    .toLowerCase();
 }
 
+// ---- Extraction token selon format réponse
 function extractToken(data) {
   return (
     data?.access_token ||
@@ -25,14 +27,15 @@ function extractToken(data) {
   );
 }
 
+// ---- STEP 1 : obtenir access token
 async function getAccessToken() {
-  const url = `${BASE_URL}/account/v1.0/token?appId=${API_ID}&language=en`;
+
+  const url =
+    `${BASE_URL}/account/v1.0/token?appId=${API_ID}&language=en`;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email: EMAIL,
       password: sha256Lower(PASSWORD),
@@ -41,6 +44,7 @@ async function getAccessToken() {
   });
 
   const data = await res.json();
+
   const token = extractToken(data);
 
   if (!res.ok || !token) {
@@ -50,7 +54,9 @@ async function getAccessToken() {
   return token;
 }
 
+// ---- STEP 2 : récupérer la liste des centrales
 async function getStationList(token) {
+
   const res = await fetch(`${BASE_URL}/station/v1.0/list`, {
     method: "POST",
     headers: {
@@ -69,6 +75,29 @@ async function getStationList(token) {
   return data?.stationList || data?.data?.list || [];
 }
 
+// ---- STEP 3 : récupérer production énergétique
+async function getStationEnergy(token, stationId) {
+
+  const res = await fetch(
+    `${BASE_URL}/station/v1.0/overview?stationId=${stationId}`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    }
+  );
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error("Energy request failed: " + JSON.stringify(data));
+  }
+
+  return data?.data || data;
+}
+
+// ---- HANDLER NETLIFY
 exports.handler = async function () {
   try {
 
@@ -79,7 +108,10 @@ exports.handler = async function () {
       };
     }
 
+    // Auth
     const token = await getAccessToken();
+
+    // Centrale
     const stations = await getStationList(token);
 
     if (!stations.length) {
@@ -91,12 +123,22 @@ exports.handler = async function () {
 
     const station = stations[0];
 
+    // Energie
+    const energy = await getStationEnergy(token, station.id);
+
     return {
       statusCode: 200,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=300"
       },
-      body: JSON.stringify(station, null, 2)
+      body: JSON.stringify({
+        station_name: station.name,
+        total_kwh: energy.totalEnergy,
+        today_kwh: energy.todayEnergy,
+        current_power_w: station.generationPower,
+        updated_at: station.lastUpdateTime
+      }, null, 2)
     };
 
   } catch (err) {
