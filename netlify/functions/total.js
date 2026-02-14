@@ -9,13 +9,23 @@ const EMAIL = process.env.SOLARMAN_USERNAME;
 const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
 
-// ---------- SHA256 lowercase
+// ---------- SHA256 lowercase (requis par SOLARMAN)
 function sha256Lower(str) {
-  return crypto.createHash("sha256").update(str).digest("hex").toLowerCase();
+  return crypto
+    .createHash("sha256")
+    .update(str, "utf8")
+    .digest("hex")
+    .toLowerCase();
 }
 
+
+// ---------- Extraction token
 function extractToken(data) {
-  return data?.access_token || data?.data?.access_token || null;
+  return (
+    data?.access_token ||
+    data?.data?.access_token ||
+    null
+  );
 }
 
 
@@ -46,7 +56,7 @@ async function getAccessToken() {
 }
 
 
-// ---------- STATIONS
+// ---------- STATION LIST + STATISTICS
 async function getStationList(token) {
 
   const res = await fetch(`${BASE_URL}/station/v1.0/list`, {
@@ -55,65 +65,20 @@ async function getStationList(token) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify({})
+    body: JSON.stringify({
+      pageNum: 1,
+      pageSize: 10,
+      needStatistics: true
+    })
   });
 
   const data = await res.json();
-  return data?.stationList || data?.data?.list || [];
-}
-
-
-// ---------- DEVICES (ONDUELURS)
-async function getDeviceList(token, stationId) {
-
-  const res = await fetch(
-    `${BASE_URL}/device/v1.0/list`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        stationId: stationId
-      })
-    }
-  );
-
-  const data = await res.json();
 
   if (!res.ok) {
-    throw new Error("Device list failed: " + JSON.stringify(data));
+    throw new Error("Station list failed: " + JSON.stringify(data));
   }
 
   return data?.data?.list || [];
-}
-
-
-// ---------- REALTIME DEVICE
-async function getDeviceRealtime(token, deviceSn) {
-
-  const res = await fetch(
-    `${BASE_URL}/device/v1.0/realTime`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        deviceSn: deviceSn
-      })
-    }
-  );
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error("Realtime failed: " + JSON.stringify(data));
-  }
-
-  return data?.data || {};
 }
 
 
@@ -121,19 +86,21 @@ async function getDeviceRealtime(token, deviceSn) {
 exports.handler = async function () {
   try {
 
+    if (!API_ID || !API_SECRET || !EMAIL || !PASSWORD) {
+      throw new Error("Missing API credentials");
+    }
+
+    // Authentification
     const token = await getAccessToken();
 
+    // Centrale
     const stations = await getStationList(token);
-    if (!stations.length) throw new Error("No station found");
+
+    if (!stations.length) {
+      throw new Error("No station found");
+    }
 
     const station = stations[0];
-
-    const devices = await getDeviceList(token, station.id);
-    if (!devices.length) throw new Error("No device found");
-
-    const deviceSn = devices[0].deviceSn;
-
-    const realtime = await getDeviceRealtime(token, deviceSn);
 
     return {
       statusCode: 200,
@@ -143,9 +110,10 @@ exports.handler = async function () {
       },
       body: JSON.stringify({
         station_name: station.name,
-        total_kwh: realtime.totalEnergy,
-        today_kwh: realtime.todayEnergy,
-        current_power_w: realtime.outputPower,
+        total_kwh: station.generationTotal,
+        today_kwh: station.generationToday,
+        current_power_w: station.generationPower,
+        installed_kwp: station.installedCapacity,
         updated_at: station.lastUpdateTime
       }, null, 2)
     };
