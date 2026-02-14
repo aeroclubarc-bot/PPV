@@ -9,17 +9,11 @@ const EMAIL = process.env.SOLARMAN_USERNAME;
 const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
 
-// ---------- SHA256 lowercase (exigé par SOLARMAN)
+// SHA256 lowercase
 function sha256Lower(str) {
-  return crypto
-    .createHash("sha256")
-    .update(str, "utf8")
-    .digest("hex")
-    .toLowerCase();
+  return crypto.createHash("sha256").update(str).digest("hex").toLowerCase();
 }
 
-
-// ---------- Extraction token
 function extractToken(data) {
   return data?.access_token || data?.data?.access_token || null;
 }
@@ -44,71 +38,67 @@ async function getAccessToken() {
   const data = await res.json();
   const token = extractToken(data);
 
-  if (!token) {
-    throw new Error("Token failed: " + JSON.stringify(data));
-  }
+  if (!token) throw new Error("Token failed");
 
   return token;
 }
 
 
-// ---------- STATION LIST
-async function getStationList(token) {
+// ---------- DEVICE REALTIME
+async function getRealtime(token, deviceSn) {
 
-  const res = await fetch(`${BASE_URL}/station/v1.0/list`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      pageNum: 1,
-      pageSize: 10
-    })
-  });
+  const res = await fetch(
+    `${BASE_URL}/device/v1.0/currentData`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        deviceSn: deviceSn
+      })
+    }
+  );
 
   const data = await res.json();
 
   if (!res.ok) {
-    throw new Error("Station list failed: " + JSON.stringify(data));
+    throw new Error("Realtime failed: " + JSON.stringify(data));
   }
 
-  return data?.data?.list || data?.stationList || [];
+  return data;
 }
 
 
-// ---------- HANDLER NETLIFY
+// ---------- HANDLER
 exports.handler = async function () {
   try {
 
-    if (!API_ID || !API_SECRET || !EMAIL || !PASSWORD) {
-      throw new Error("Missing API credentials");
-    }
-
-    // Authentification
     const token = await getAccessToken();
 
-    // Centrale
-    const stations = await getStationList(token);
+    // TON numéro série trouvé dans ton JSON
+    const deviceSn = "SE1ES430N5R271";
 
-    if (!stations.length) {
-      throw new Error("No station found");
-    }
+    const realtime = await getRealtime(token, deviceSn);
 
-    const station = stations[0];
+    const list = realtime.dataList || [];
+
+    const find = key =>
+      list.find(i => i.key === key)?.value || null;
 
     return {
       statusCode: 200,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "public, max-age=300"
       },
       body: JSON.stringify({
-        station_name: station.name,
-        current_power_w: station.generationPower,
-        installed_kwp: station.installedCapacity,
-        battery_soc: station.batterySoc,
-        updated_at: station.lastUpdateTime
+        station_name: "PPV Aéroclub ARC - LFPX",
+        total_kwh: Number(find("Et_ge0")),
+        today_kwh: Number(find("Etdy_ge1")),
+        current_power_w: Number(find("P_INV1")),
+        battery_soc: Number(find("B_left_cap1"))
       }, null, 2)
     };
 
