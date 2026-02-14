@@ -9,7 +9,7 @@ const EMAIL = process.env.SOLARMAN_USERNAME;
 const PASSWORD = process.env.SOLARMAN_PASSWORD;
 
 
-// SHA256 lowercase
+// ---------- SHA256 lowercase
 function sha256Lower(str) {
   return crypto.createHash("sha256").update(str).digest("hex").toLowerCase();
 }
@@ -46,7 +46,7 @@ async function getAccessToken() {
 }
 
 
-// ---------- STATION
+// ---------- STATIONS
 async function getStationList(token) {
 
   const res = await fetch(`${BASE_URL}/station/v1.0/list`, {
@@ -63,11 +63,11 @@ async function getStationList(token) {
 }
 
 
-// ---------- DEVICE REALTIME (production réelle)
-async function getDeviceRealtime(token, stationId) {
+// ---------- DEVICES (ONDUELURS)
+async function getDeviceList(token, stationId) {
 
   const res = await fetch(
-    `${BASE_URL}/device/v1.0/realTime`,
+    `${BASE_URL}/device/v1.0/list`,
     {
       method: "POST",
       headers: {
@@ -83,10 +83,37 @@ async function getDeviceRealtime(token, stationId) {
   const data = await res.json();
 
   if (!res.ok) {
-    throw new Error("Realtime request failed: " + JSON.stringify(data));
+    throw new Error("Device list failed: " + JSON.stringify(data));
   }
 
-  return data?.data || [];
+  return data?.data?.list || [];
+}
+
+
+// ---------- REALTIME DEVICE
+async function getDeviceRealtime(token, deviceSn) {
+
+  const res = await fetch(
+    `${BASE_URL}/device/v1.0/realTime`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        deviceSn: deviceSn
+      })
+    }
+  );
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error("Realtime failed: " + JSON.stringify(data));
+  }
+
+  return data?.data || {};
 }
 
 
@@ -95,17 +122,18 @@ exports.handler = async function () {
   try {
 
     const token = await getAccessToken();
-    const stations = await getStationList(token);
 
-    if (!stations.length) {
-      throw new Error("No station found");
-    }
+    const stations = await getStationList(token);
+    if (!stations.length) throw new Error("No station found");
 
     const station = stations[0];
 
-    const devices = await getDeviceRealtime(token, station.id);
+    const devices = await getDeviceList(token, station.id);
+    if (!devices.length) throw new Error("No device found");
 
-    const inverter = devices[0] || {};
+    const deviceSn = devices[0].deviceSn;
+
+    const realtime = await getDeviceRealtime(token, deviceSn);
 
     return {
       statusCode: 200,
@@ -115,9 +143,9 @@ exports.handler = async function () {
       },
       body: JSON.stringify({
         station_name: station.name,
-        total_kwh: inverter.totalEnergy,
-        today_kwh: inverter.todayEnergy,
-        current_power_w: station.generationPower,
+        total_kwh: realtime.totalEnergy,
+        today_kwh: realtime.todayEnergy,
+        current_power_w: realtime.outputPower,
         updated_at: station.lastUpdateTime
       }, null, 2)
     };
